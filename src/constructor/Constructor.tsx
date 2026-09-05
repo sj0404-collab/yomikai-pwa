@@ -20,7 +20,7 @@ export function Constructor(props: { onExit: () => void; showToast: (t: string) 
   })();
 
   const move = (id: string, delta: number) => {
-    const ids = ordered.map((t) => t.id);
+    const ids: string[] = ordered.map((t) => t.id);
     const i = ids.indexOf(id);
     const j = i + delta;
     if (j < 0 || j >= ids.length) return;

@@ -25,12 +25,11 @@ export async function ocrImage(source: HTMLImageElement | HTMLCanvasElement | st
   return String(res?.data?.text ?? "").trim();
 }
 
-/** SVG-страницуdemo рендерим в canvas, чтобы отдать в OCR и показать как картинку. */
-export function svgToCanvas(svg: string, width = 900): HTMLCanvasElement {
-  const canvas = document.createElement("canvas");
-  const img = new Image();
-  const url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
-  return new Promise<HTMLCanvasElement>((resolve, reject) => {
+/ SVG-страницу демо рендерим в canvas, чтобы отдать в OCR и показать как картинку. */
+export function svgToCanvas(svg: string, width = 900): Promise<HTMLCanvasElement> {
+  return new Promise((resolve, reject) => {
+    const canvas = document.createElement("canvas");
+    const img = new Image();
     img.onload = () => {
       const scale = width / img.width;
       canvas.width = width;
@@ -41,11 +40,9 @@ export function svgToCanvas(svg: string, width = 900): HTMLCanvasElement {
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
       resolve(canvas);
     };
-    img.onerror = reject;
-    img.src = url;
-  }) as any;
+    img.onerror = () => reject(new Error("SVG не отрендерился"));
+    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+  });
 }
 
-export function svgToCanvasSync(svg: string, width = 900): Promise<HTMLCanvasElement> {
-  return svgToCanvas(svg as any, width) as Promise<HTMLCanvasElement>;
-}
+export const svgToCanvasSync = svgToCanvas;
