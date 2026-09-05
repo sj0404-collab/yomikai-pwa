@@ -25,7 +25,7 @@ export async function ocrImage(source: HTMLImageElement | HTMLCanvasElement | st
   return String(res?.data?.text ?? "").trim();
 }
 
-/ SVG-страницу демо рендерим в canvas, чтобы отдать в OCR и показать как картинку. */
+/** SVG-страницу демо рендерим в canvas, чтобы отдать в OCR и показать как картинку. */
 export function svgToCanvas(svg: string, width = 900): Promise<HTMLCanvasElement> {
   return new Promise((resolve, reject) => {
     const canvas = document.createElement("canvas");
