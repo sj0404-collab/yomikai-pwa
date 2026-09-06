@@ -175,13 +175,11 @@ class MainActivity : AppCompatActivity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 pushState()
             }
-
-            override fun onReceivedTitle(view: WebView?, title: String?) {
-                pushState()
-            }
         }
         wv.webChromeClient = object : android.webkit.WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) { pushState() }
+
+            override fun onReceivedTitle(view: WebView?, title: String?) { pushState() }
 
             override fun onShowFileChooser(
                 webView: WebView?,

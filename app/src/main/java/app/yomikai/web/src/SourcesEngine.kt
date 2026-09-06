@@ -193,7 +193,8 @@ object SourcesEngine {
         ensure(context)
         val s = sourcesCache[id] ?: return """{"error":"source not found"}"""
         val manga = SManga.create().apply { url = mangaUrl; title = mangaTitle }
-        val chapters: List<SChapter> = runBlocking { s.getChapterList(manga) }
+        val upd = runBlocking { s.getMangaUpdate(manga, emptyList(), fetchDetails = true, fetchChapters = true) }
+        val chapters: List<SChapter> = upd.chapters
         return JSONArray().apply {
             chapters.forEachIndexed { i, ch ->
                 put(
