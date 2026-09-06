@@ -19,6 +19,9 @@ export const AGE_LABEL: Record<Age, string> = {
   elderly: "Пожилой",
 };
 
+function gender0(g?: Gender): string { return g ?? "neutral"; }
+function age0(a?: Age): string { return a ?? "adult"; }
+
 export function ruVoices(): SpeechSynthesisVoice[] {
   if (typeof speechSynthesis === "undefined") return [];
   return speechSynthesis.getVoices().filter((v) => v.lang.toLowerCase().startsWith("ru"));
@@ -49,7 +52,13 @@ let highlightCb: ((i: number, total: number) => void) | null = null;
 export function isSpeaking() {
   return speaking;
 }
+/** Внутри Kotlin-обёртки озвучка идёт через нативный TextToSpeech (мост YomikaiTts). */
+function ttsBridge(): any {
+  return (window as any).YomikaiTts || null;
+}
+
 export function stopTts() {
+  ttsBridge()?.stop?.();
   speaking = false;
   onEndCb = null;
   highlightCb = null;
@@ -65,9 +74,16 @@ export function speakText(
   text: string,
   opts: { gender?: Gender; age?: Age; onEnd?: () => void; onSentence?: (i: number, total: number) => void } = {},
 ) {
-  if (typeof speechSynthesis === "undefined") return;
+  const br = ttsBridge();
   stopTts();
   const s = getState().settings;
+  if (br) {
+    // Нативный TTS обёртки: пресеты пол×возраст уходят в Kotlin.
+    speaking = true;
+    br.speak(text, gender0(opts.gender), age0(opts.age), s.rate, s.pitch);
+    return;
+  }
+  if (typeof speechSynthesis === "undefined") return;
   const gender = opts.gender ?? "neutral";
   const age = opts.age ?? "adult";
   const sentences = text
