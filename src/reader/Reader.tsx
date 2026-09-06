@@ -143,10 +143,10 @@ export default function Reader({ item }: { item: LibItem | null }) {
         style={{ touchAction: picking ? "none" : undefined }}
       >
         {mode === "vertical" ? (
-          <img ref={imgRef} src={p.img} alt="" draggable={false} />
+          <img ref={imgRef} src={p.img} alt="" draggable={false} crossOrigin={p.img.startsWith("http://127.0.0.1") ? "anonymous" : undefined} />
         ) : (
           item.pages.map((pg, i) => (
-            <img key={i} ref={i === page ? imgRef : undefined} src={pg.img} alt="" draggable={false} onClick={() => !picking && setPage(i)} />
+            <img key={i} ref={i === page ? imgRef : undefined} src={pg.img} alt="" draggable={false} crossOrigin={pg.img.startsWith("http://127.0.0.1") ? "anonymous" : undefined} onClick={() => !picking && setPage(i)} />
           ))
         )}
         {rect && <div className="sel-rect" style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }} />}
