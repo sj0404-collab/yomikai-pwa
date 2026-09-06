@@ -1,214 +1,323 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { getState, isModuleHidden, setState, useStore, CustomAction } from "../store";
-import { AppBar, ToastHost } from "../ui";
-import { speak, stop } from "../tts";
-import { svgToCanvasSync, ocrImage } from "../ocr";
+import React, { useEffect, useRef, useState } from "react";
+import { setState, getState, type LibItem } from "../store";
+import { speakText, stopTts, isSpeaking, GENDER_LABEL, AGE_LABEL, type Gender, type Age } from "../tts";
+import { ocrImage, cropToCanvas } from "../ocr";
 
-/** Демо-страницы: SVG с русскими репликами — их и озвучиваем, и распознаём OCR. */
-function makePages(title: string, count: number) {
-  const lines = [
-    ["НЕУЖТО РИШЕЛЬЕ ВОЗНАМЕРИЛСЯ", "ОТКРЫТО ИГНОРИРОВАТЬ", "ВСЕ ТОРЖЕСТВА,"],
-    ["ОН УЖЕ ГЛАВОЙ ЦЕРКВИ", "СЕБЯ ВОЗОМНИЛ, ЧТО ЛИ?"],
-    ["КАК ЖЕ ВСЁ-ТАКИ РАЗДРАЖАЕТ", "ЕГО ИЗВЕЧНОЕ ВЫСОКОМЕРИЕ!"],
-  ];
-  return Array.from({ length: count }, (_, i) => {
-    const ls = lines[i % lines.length];
-    const text = ls.join(" ").toLowerCase();
-    const bubble = ls
-      .map((l, k) => `<text x="450" y="${150 + k * 44}" font-size="34" text-anchor="middle" font-family="Georgia, serif" fill="#111">${l}</text>`)
-      .join("");
-    const svg =
-      `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1300" viewBox="0 0 900 1300">` +
-      `<rect width="900" height="1300" fill="#f7f3ea"/>` +
-      `<rect x="60" y="60" width="780" height="520" fill="#d9c9a8"/>` +
-      `<circle cx="330" cy="330" r="120" fill="#b98d6a"/>` +
-      `<rect x="470" y="210" width="260" height="240" fill="#8a6f52"/>` +
-      `<rect x="180" y="80" width="540" height="${90 + ls.length * 44}" rx="26" fill="#ffffff" stroke="#111" stroke-width="3"/>` +
-      bubble +
-      `<text x="450" y="1240" font-size="30" text-anchor="middle" fill="#666" font-family="Georgia, serif">${title} · стр. ${i + 1}</text>` +
-      `</svg>`;
-    return { svg, text };
-  });
-}
-
-export function Reader(props: { title: string; pages: number; onExit: () => void; showToast: (t: string) => void }) {
-  const state = useStore();
-  const pages = useMemo(() => makePages(props.title, Math.max(1, props.pages)), [props.title, props.pages]);
-  const [index, setIndex] = useState(0);
-  const [menuOpen, setMenuOpen] = useState(false);
+// Читалка: страница-картинка + SAO-меню (порядок чтения, автопрокрутка,
+// «прочитать страницу», OCR-скан зоны пальцем, озвучка пресетами пол×возраст).
+export default function Reader({ item }: { item: LibItem | null }) {
+  const [page, setPage] = useState(item?.lastPage ?? 0);
+  const [menu, setMenu] = useState(false);
+  const [mode, setMode] = useState<"rtl" | "ltr" | "vertical">(getState().settings.readerMode);
+  const [autoScroll, setAutoScroll] = useState(false);
   const [ocrBusy, setOcrBusy] = useState(false);
   const [ocrText, setOcrText] = useState<string | null>(null);
-  const [speaking, setSpeaking] = useState(false);
-  const [hl, setHl] = useState(false);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const autoRef = useRef<number | null>(null);
+  const [ocrSent, setOcrSent] = useState(-1);
+  const [picking, setPicking] = useState(false);
+  const [rect, setRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
+  const [gender, setGender] = useState<Gender>("neutral");
+  const [age, setAge] = useState<Age>("adult");
+  const imgRef = useRef<HTMLImageElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const dragStart = useRef<{ x: number; y: number } | null>(null);
 
   useEffect(() => {
-    setState({ history: [{ id: getState().library.find((l) => l.title === props.title)?.id ?? props.title, title: props.title, at: Date.now() }, ...getState().history].slice(0, 30) });
-    return () => stop();
-  }, []);
+    if (item) setPage(Math.min(item.lastPage, Math.max(0, item.pages.length - 1)));
+    stopTts();
+    setOcrText(null);
+  }, [item?.id]);
 
-  const dir = state.readerDir;
+  useEffect(() => {
+    if (item) setState((s) => s.library.forEach((l) => (l.id === item.id ? (l.lastPage = page) : null)));
+  }, [page, item?.id]);
 
-  const doAutoscroll = () => {
-    if (autoRef.current != null) {
-      window.clearInterval(autoRef.current);
-      autoRef.current = null;
-      props.showToast("Автопрокрутка остановлена");
-      return;
-    }
-    autoRef.current = window.setInterval(() => scrollRef.current?.scrollBy({ top: 3 }), 16);
-    props.showToast("Автопрокрутка включена");
+  // Автопрокрутка (вертикальный режим)
+  useEffect(() => {
+    if (!autoScroll || mode !== "vertical") return;
+    const el = wrapRef.current;
+    if (!el) return;
+    const t = setInterval(() => {
+      el.scrollBy({ top: 2, behavior: "auto" });
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 4) setAutoScroll(false);
+    }, 16);
+    return () => clearInterval(t);
+  }, [autoScroll, mode]);
+
+  if (!item) {
+    return (
+      <div className="screen">
+        <div className="topbar">
+          <h1>Читалка</h1>
+        </div>
+        <div className="panel muted">Откройте тайтл из Библиотеки или Истории.</div>
+      </div>
+    );
+  }
+  if (item.pages.length === 0) {
+    return (
+      <div className="screen">
+        <div className="topbar">
+          <h1>{item.title}</h1>
+        </div>
+        <AddPages item={item} />
+      </div>
+    );
+  }
+
+  const p = item.pages[Math.min(page, item.pages.length - 1)];
+
+  const turn = (d: number) => {
+    stopTts();
+    setOcrText(null);
+    setPage((x) => Math.min(item.pages.length - 1, Math.max(0, x + d)));
   };
 
-  const doSpeakPage = () => {
-    if (speaking) {
-      stop();
-      setSpeaking(false);
-      setHl(false);
-      return;
-    }
-    setSpeaking(true);
-    setHl(true);
-    speak(pages[index].text, () => {
-      setSpeaking(false);
-      setHl(false);
-    });
+  const readPage = () => {
+    const text = ocrText || p.text;
+    if (!text) return;
+    speakText(text, { gender, age, onSentence: (i) => setOcrSent(i), onEnd: () => setOcrSent(-1) });
   };
 
-  const doOcr = async () => {
+  const scanArea = async (x: number, y: number, w: number, h: number) => {
+    const img = imgRef.current;
+    if (!img) return;
     setOcrBusy(true);
     setOcrText(null);
     try {
-      const canvas = await svgToCanvasSync(pages[index].svg);
-      const text = await ocrImage(canvas);
-      setOcrText(text || "Не удалось распознать текст на странице");
+      const canvas = cropToCanvas(img, x, y, w, h);
+      const txt = await ocrImage(canvas);
+      setOcrText(txt || "Ничего не распознано");
     } catch (e: any) {
-      setOcrText("OCR недоступен: " + (e?.message ?? "ошибка (оффлайн?)"));
+      setOcrText("OCR недоступен: " + (e?.message || e));
     } finally {
       setOcrBusy(false);
+      setPicking(false);
+      setRect(null);
     }
   };
 
-  const applyAction = (a: CustomAction) => {
-    switch (a.effect) {
-      case "theme":
-        setState({ theme: getState().theme === "dark" ? "light" : "dark" });
-        props.showToast("Тема переключена");
-        break;
-      case "voice_preset":
-        setState({ voiceGender: (a.value as any) || "auto" });
-        props.showToast("Пресет голоса: " + (a.value || "auto"));
-        break;
-      case "reader_dir":
-        setState({ readerDir: (a.value as any) || "rtl" });
-        props.showToast("Порядок чтения: " + (a.value || "rtl"));
-        break;
-      case "tts_stop":
-        stop();
-        setSpeaking(false);
-        props.showToast("Озвучка остановлена");
-        break;
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (!picking) return;
+    const r = wrapRef.current!.getBoundingClientRect();
+    dragStart.current = { x: e.clientX - r.left, y: e.clientY - r.top };
+    setRect({ x: e.clientX - r.left, y: e.clientY - r.top, w: 0, h: 0 });
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (!picking || !dragStart.current) return;
+    const r = wrapRef.current!.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    setRect({
+      x: Math.min(x, dragStart.current.x),
+      y: Math.min(y, dragStart.current.y),
+      w: Math.abs(x - dragStart.current.x),
+      h: Math.abs(y - dragStart.current.y),
+    });
+  };
+  const onPointerUp = () => {
+    if (!picking || !dragStart.current || !rect || !wrapRef.current) return;
+    const r = wrapRef.current.getBoundingClientRect();
+    const img = imgRef.current;
+    dragStart.current = null;
+    if (!img || rect.w < 20 || rect.h < 20) {
+      setRect(null);
+      return;
     }
+    // координаты выделения (отн. обёртки) -> доли картинки
+    const ir = img.getBoundingClientRect();
+    const fx = (rect.x - (ir.left - r.left)) / ir.width;
+    const fy = (rect.y - (ir.top - r.top)) / ir.height;
+    scanArea(Math.max(0, fx), Math.max(0, fy), rect.w / ir.width, rect.h / ir.height);
   };
 
-  const userActs = state.actions.filter((a) => a.placement === "floating_menu");
-  const page = pages[index];
-  const vertical = dir === "vertical";
+  const sentences = (ocrText || p.text || "").split(/(?<=[.!?…])\s+/).filter(Boolean);
 
   return (
-    <div className="app">
-      <AppBar title={props.title} back={props.onExit} right={<span className="muted">{index + 1} / {pages.length}</span>} />
+    <div className="reader">
       <div
-        ref={scrollRef}
-        className="content"
-        style={{
-          display: "flex",
-          flexDirection: vertical ? "column" : "row",
-          direction: vertical ? "ltr" : dir === "rtl" ? "rtl" : "ltr",
-          overflow: "auto",
-          gap: 8,
-        }}
+        ref={wrapRef}
+        className={"reader-imgs" + (mode === "vertical" ? "" : " horizontal" + (mode === "rtl" ? " rtl" : ""))}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        style={{ touchAction: picking ? "none" : undefined }}
       >
-        {(vertical ? pages : [page]).map((p, i) => (
-          <div key={i} className={"reader-page" + (speaking && hl && i === index ? " hl" : "")}>
-            <img alt={"стр " + (i + 1)} src={"data:image/svg+xml;charset=utf-8," + encodeURIComponent(p.svg)} />
-          </div>
-        ))}
-      </div>
-
-      <div className="sao">
-        {menuOpen && (
-          <div className="sao-menu">
-            {!isModuleHidden("r_order") && (
-              <div className="sao-row">
-                <span>{dir === "rtl" ? "→ Справа налево" : dir === "ltr" ? "→ Слева направо" : "↓ Сверху вниз"}</span>
-                <button
-                  className="sfab"
-                  onClick={() => setState({ readerDir: dir === "rtl" ? "ltr" : dir === "ltr" ? "vertical" : "rtl" })}
-                >⇄</button>
-              </div>
-            )}
-            {!isModuleHidden("r_autoscroll") && (
-              <div className="sao-row">
-                <span>Автопрокрутка</span>
-                <button className="sfab" onClick={doAutoscroll}>▶</button>
-              </div>
-            )}
-            {!isModuleHidden("r_autoread") && (
-              <div className="sao-row">
-                <span>{speaking ? "Стоп чтения" : "Прочитать страницу"}</span>
-                <button className="sfab" onClick={doSpeakPage}>🔊</button>
-              </div>
-            )}
-            {!isModuleHidden("r_scan") && (
-              <div className="sao-row">
-                <span>OCR скан</span>
-                <button className="sfab" onClick={doOcr}>⌕</button>
-              </div>
-            )}
-            {userActs.map((a) => (
-              <div className="sao-row" key={a.id}>
-                <span>{a.title}</span>
-                <button className="sfab" onClick={() => applyAction(a)}>★</button>
-              </div>
-            ))}
-          </div>
+        {mode === "vertical" ? (
+          <img ref={imgRef} src={p.img} alt="" draggable={false} />
+        ) : (
+          item.pages.map((pg, i) => (
+            <img key={i} ref={i === page ? imgRef : undefined} src={pg.img} alt="" draggable={false} onClick={() => !picking && setPage(i)} />
+          ))
         )}
-        <button className="fab" onClick={() => setMenuOpen((v) => !v)}>{menuOpen ? "✕" : "☰"}</button>
+        {rect && <div className="sel-rect" style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }} />}
       </div>
 
-      {ocrBusy && <div className="toast">Распознавание… (закрытие = отмена)</div>}
-      {ocrText != null && (
-        <div className="dialog-back" onClick={() => setOcrText(null)}>
-          <div className="dialog" onClick={(e) => e.stopPropagation()}>
-            <div style={{ whiteSpace: "pre-wrap" }}>{ocrText}</div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {!isModuleHidden("r_tts") && <button className="chip" onClick={() => speak(ocrText)}>Голос</button>}
-              <button className="chip" onClick={() => navigator.clipboard?.writeText(ocrText)}>Копировать</button>
-              <button className="chip" onClick={() => setOcrText(null)}>Закрыть</button>
-            </div>
-            {state.actions.filter((a) => a.placement === "ocr_card").map((a) => (
-              <button key={a.id} className="chip" onClick={() => applyAction(a)}>{a.title}</button>
+      {picking && <div className="area-hint">Выделите зону пальцем — отпустите для скана</div>}
+
+      {ocrBusy && (
+        <div className="ocr-card">
+          <b>Распознавание…</b>
+          <div className="muted">tesseract.js: при первом скане докачает языковые данные (~2 МБ, закэшируется).</div>
+        </div>
+      )}
+      {!ocrBusy && ocrText !== null && (
+        <div className="ocr-card">
+          <div>
+            {sentences.map((s, i) => (
+              <span key={i} className={i === ocrSent ? "sent-cur" : ""}>
+                {s}{" "}
+              </span>
             ))}
+          </div>
+          <div className="row" style={{ marginTop: 8, flexWrap: "wrap" }}>
+            <button className="btn ghost" onClick={readPage}>
+              {isSpeaking() ? "⟳ Заново" : "🔊 Голос"}
+            </button>
+            <button className="btn ghost" onClick={() => navigator.clipboard?.writeText(ocrText || "")}>
+              Копир.
+            </button>
+            <button
+              className="btn ghost"
+              onClick={() => {
+                stopTts();
+                setOcrText(null);
+              }}
+            >
+              Закрыть
+            </button>
           </div>
         </div>
       )}
 
-      {!vertical && (
-        <div className="row" style={{ position: "sticky", bottom: 0, background: "var(--bg)" }}>
-          <button className="sfab" onClick={() => setIndex((i) => Math.max(0, i - 1))}>⏮</button>
-          <input
-            type="range"
-            min={0}
-            max={pages.length - 1}
-            value={index}
-            onChange={(e) => setIndex(Number(e.target.value))}
-            style={{ flex: 1 }}
-          />
-          <button className="sfab" onClick={() => setIndex((i) => Math.min(pages.length - 1, i + 1))}>⏭</button>
+      {mode !== "vertical" && (
+        <>
+          <button className="sao-fab" style={{ left: 12, right: undefined }} onClick={() => turn(mode === "rtl" ? 1 : -1)}>
+            ‹
+          </button>
+          <button className="sao-fab" style={{ right: 66 }} onClick={() => turn(mode === "rtl" ? -1 : 1)}>
+            ›
+          </button>
+        </>
+      )}
+      <button className="sao-fab" onClick={() => setMenu((m) => !m)}>
+        ☰
+      </button>
+
+      {menu && (
+        <div className="sao-menu">
+          <b>{item.title}</b>
+          <div className="muted">
+            стр. {page + 1}/{item.pages.length}
+          </div>
+          <div className="hr" />
+          <div className="chips">
+            {(["rtl", "ltr", "vertical"] as const).map((m) => (
+              <button
+                key={m}
+                className={"chip" + (mode === m ? " active" : "")}
+                onClick={() => {
+                  setMode(m);
+                  setState((s) => (s.settings.readerMode = m));
+                }}
+              >
+                {m === "rtl" ? "Справа налево" : m === "ltr" ? "Слева направо" : "Вертикаль"}
+              </button>
+            ))}
+          </div>
+          <div className="hr" />
+          <div className="row">
+            <button className={"chip" + (autoScroll ? " active" : "")} onClick={() => setAutoScroll((a) => !a)} disabled={mode !== "vertical"}>
+              Автопрокрутка
+            </button>
+            <button className="chip" onClick={() => setPicking((x) => !x)}>
+              {picking ? "Отмена выбора" : "✂ Скан зоны"}
+            </button>
+            <button className="chip" onClick={readPage}>
+              🔊 Прочитать страницу
+            </button>
+          </div>
+          <div className="hr" />
+          <div className="muted">Голос-пресет:</div>
+          <div className="chips" style={{ marginTop: 4 }}>
+            {(["female", "male", "neutral"] as Gender[]).map((g) => (
+              <button key={g} className={"chip" + (gender === g ? " active" : "")} onClick={() => setGender(g)}>
+                {GENDER_LABEL[g]}
+              </button>
+            ))}
+          </div>
+          <div className="chips" style={{ marginTop: 4 }}>
+            {(Object.keys(AGE_LABEL) as Age[]).map((a) => (
+              <button key={a} className={"chip" + (age === a ? " active" : "")} onClick={() => setAge(a)}>
+                {AGE_LABEL[a]}
+              </button>
+            ))}
+          </div>
+          <div className="row" style={{ marginTop: 6 }}>
+            <button className="btn ghost" onClick={() => speakText("Раз, два, три — проверка голоса.", { gender, age })}>
+              ▶ Проба
+            </button>
+            <button className="btn ghost" onClick={stopTts}>
+              ■ Стоп
+            </button>
+          </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function AddPages({ item }: { item: LibItem }) {
+  const [urls, setUrls] = useState("");
+  return (
+    <div className="panel">
+      <div className="muted">Страниц пока нет. Вставьте URL картинок (по одной на строку) или выберите файлы:</div>
+      <textarea rows={4} value={urls} onChange={(e) => setUrls(e.target.value)} placeholder={"https://…/page1.jpg\nhttps://…/page2.jpg"} />
+      <div className="row" style={{ marginTop: 8 }}>
+        <button
+          className="btn"
+          onClick={() => {
+            const list = urls.split("\n").map((x) => x.trim()).filter(Boolean);
+            if (list.length === 0) return;
+            setState((s) =>
+              s.library.forEach((l) => {
+                if (l.id === item.id) {
+                  l.pages = list.map((u) => ({ img: u, text: "" }));
+                  l.cover = list[0];
+                }
+              }),
+            );
+          }}
+        >
+          Добавить страницы
+        </button>
+        <input
+          type="file"
+          accept="image/*"
+          multiple
+          onChange={async (e) => {
+            const files = Array.from(e.target.files || []);
+            if (files.length === 0) return;
+            const pages = await Promise.all(
+              files.map(
+                (f) =>
+                  new Promise<{ img: string; text: string }>((res) => {
+                    const r = new FileReader();
+                    r.onload = () => res({ img: String(r.result), text: "" });
+                    r.readAsDataURL(f);
+                  }),
+              ),
+            );
+            setState((s) =>
+              s.library.forEach((l) => {
+                if (l.id === item.id) {
+                  l.pages = pages;
+                  l.cover = pages[0].img;
+                }
+              }),
+            );
+          }}
+        />
+      </div>
     </div>
   );
 }

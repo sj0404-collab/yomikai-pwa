@@ -1,7 +1,7 @@
 {
-  "name": "Yomikai PWA",
+  "name": "Yomikai — читалка с озвучкой",
   "short_name": "Yomikai",
-  "description": "Читалка манги с озвучкой, OCR, браузером, AI-чатом и конструктором интерфейса.",
+  "description": "Веб-двойник Android-читалки yomikai: библиотека, читалка с озвучкой и OCR, браузер, AI-чат, конструктор.",
   "lang": "ru",
   "start_url": "./",
   "scope": "./",
@@ -10,17 +10,6 @@
   "background_color": "#121417",
   "theme_color": "#121417",
   "icons": [
-    {
-      "src": "./icons/icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any"
-    },
-    {
-      "src": "./icons/icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "maskable"
-    }
+    { "src": "./icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
   ]
 }

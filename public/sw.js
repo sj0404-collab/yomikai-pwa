@@ -1,54 +1,50 @@
-/* Service worker Yomikai PWA: оффлайн-оболочка + кэш статики. */
+// Service worker yomikai PWA: оболочка работает офлайн (network-first с кэшем).
 const CACHE = "yomikai-pwa-v1";
-const SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icons/icon.svg"];
 
-self.addEventListener("install", (event) => {
-  event.waitUntil(
-    caches.open(CACHE).then((cache) => cache.addAll(SHELL)).then(() => self.skipWaiting()),
-  );
+self.addEventListener("install", (e) => {
+  self.skipWaiting();
 });
 
-self.addEventListener("activate", (event) => {
-  event.waitUntil(
+self.addEventListener("activate", (e) => {
+  e.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      .then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
 });
 
-self.addEventListener("fetch", (event) => {
-  const req = event.request;
+self.addEventListener("fetch", (e) => {
+  const req = e.request;
   if (req.method !== "GET") return;
   const url = new URL(req.url);
-  if (url.origin !== self.location.origin) return; // чужиеOrigin не кэшируем
-
+  // Навигация: сеть, при офлайне — кэш главной
   if (req.mode === "navigate") {
-    // Навигация: сеть первична, оффлайн-фолбэк на оболочку.
-    event.respondWith(
+    e.respondWith(
       fetch(req)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put("./index.html", copy));
-          return res;
+        .then((r) => {
+          const c = r.clone();
+          caches.open(CACHE).then((cache) => cache.put(req, c));
+          return r;
         })
-        .catch(() => caches.match("./index.html")),
+        .catch(() => caches.match(req).then((m) => m || caches.match("./index.html"))),
     );
     return;
   }
-
-  // Статика: кэш первичен, потом сеть с дописыванием в кэш.
-  event.respondWith(
-    caches.match(req).then(
-      (hit) =>
-        hit ||
-        fetch(req).then((res) => {
-          if (res.ok) {
-            const copy = res.clone();
-            caches.open(CACHE).then((c) => c.put(req, copy));
-          }
-          return res;
-        }),
-    ),
-  );
+  // Ассеты своего origin: cache-first
+  if (url.origin === self.location.origin) {
+    e.respondWith(
+      caches.match(req).then(
+        (hit) =>
+          hit ||
+          fetch(req).then((r) => {
+            if (r && r.status === 200) {
+              const c = r.clone();
+              caches.open(CACHE).then((cache) => cache.put(req, c));
+            }
+            return r;
+          }),
+      ),
+    );
+  }
 });

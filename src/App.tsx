@@ -1,62 +1,59 @@
-import React, { useEffect, useState } from "react";
-import { orderedTabs, useStore, setState, TABS } from "./store";
-import { AppBar, ToastHost, useToast, Ic } from "./ui";
-import { LibraryTab, LocalTab, UpdatesTab, HistoryTab, BrowseTab } from "./tabs/SimpleTabs";
-import { BrowserTab } from "./tabs/BrowserTab";
-import { AiChatTab } from "./tabs/AiChatTab";
-import { MoreTab } from "./settings/Settings";
-import { Reader } from "./reader/Reader";
+import React, { useEffect, useState, useSyncExternalStore } from "react";
+import { getState, subscribe, type LibItem } from "./store";
+import { loadTabsCfg, saveTabsCfg, type TabId, type TabsCfg } from "./tabs";
+import Library from "./screens/Library";
+import History from "./screens/History";
+import Browse from "./screens/Browse";
+import Reader from "./reader/Reader";
+import WebTab from "./screens/WebTab";
+import AiChat from "./screens/AiChat";
+import More from "./screens/More";
 
 export default function App() {
-  const state = useStore();
-  const [tab, setTab] = useState<string>("library");
-  const [readerItem, setReaderItem] = useState<string | null>(null);
-  const [toast, showToast] = useToast();
+  const store = useSyncExternalStore(subscribe, getState);
+  const [tab, setTab] = useState<TabId>("library");
+  const [current, setCurrent] = useState<LibItem | null>(null);
+  const [cfg, setCfg] = useState<TabsCfg>(loadTabsCfg);
 
   useEffect(() => {
-    document.documentElement.dataset.theme = state.theme;
-  }, [state.theme]);
+    document.documentElement.dataset.theme = store.settings.theme;
+  }, [store.settings.theme]);
 
-  // Если текущую вкладку скрыли конструктором — возвращаемся в библиотеку.
-  useEffect(() => {
-    if (!orderedTabs().some((t) => t.id === tab)) setTab("library");
-  }, [state.hiddenTabs, state.tabOrder]);
-
-  if (readerItem) {
-    const item = state.library.find((l) => l.id === readerItem);
-    return (
-      <Reader
-        title={item?.title ?? "Чтение"}
-        pages={item?.pages ?? 3}
-        onExit={() => setReaderItem(null)}
-        showToast={showToast}
-      />
-    );
-  }
-
-  const tabs = orderedTabs();
-  const content =
-    tab === "library" ? <LibraryTab onOpen={(id) => setReaderItem(id)} showToast={showToast} /> :
-    tab === "local" ? <LocalTab /> :
-    tab === "updates" ? <UpdatesTab /> :
-    tab === "history" ? <HistoryTab onOpen={(id) => setReaderItem(id)} /> :
-    tab === "browse" ? <BrowseTab showToast={showToast} /> :
-    tab === "browser" ? <BrowserTab showToast={showToast} /> :
-    tab === "ai" ? <AiChatTab /> :
-    <MoreTab showToast={showToast} />;
+  const openItem = (it: LibItem) => {
+    setCurrent(it);
+    setTab("reader");
+  };
+  const visible = cfg.order.filter((t) => !cfg.hidden.includes(t));
 
   return (
     <div className="app">
-      <div className="content">{content}</div>
-      <nav className="bottomnav">
-        {tabs.map((t) => (
-          <button key={t.id} className={tab === t.id ? "active" : ""} onClick={() => setTab(t.id)}>
-            <span style={{ fontSize: 18 }}>{(Ic as any)[t.id]}</span>
-            <span>{t.title}</span>
+      {tab === "library" && <Library onOpen={openItem} />}
+      {tab === "history" && <History onOpen={openItem} />}
+      {tab === "browse" && <Browse onOpen={openItem} goWeb={() => setTab("web")} />}
+      {tab === "reader" && <Reader item={current} />}
+      {tab === "web" && <WebTab />}
+      {tab === "ai" && <AiChat />}
+      {tab === "more" && (
+        <More
+          cfg={cfg}
+          setCfg={(c) => {
+            setCfg(c);
+            saveTabsCfg(c);
+          }}
+        />
+      )}
+      <nav className="tabs">
+        {visible.map((t) => (
+          <button key={t} className={"tab" + (tab === t ? " active" : "")} onClick={() => setTab(t)}>
+            <span className="ico">{TAB_ICO[t]}</span>
+            <span className="lbl">{TAB_LBL[t]}</span>
           </button>
         ))}
       </nav>
-      <ToastHost text={toast} />
     </div>
   );
 }
+
+import { TAB_META } from "./tabs";
+const TAB_ICO: Record<string, string> = Object.fromEntries(Object.entries(TAB_META).map(([k, v]) => [k, v.ico]));
+const TAB_LBL: Record<string, string> = Object.fromEntries(Object.entries(TAB_META).map(([k, v]) => [k, v.label]));

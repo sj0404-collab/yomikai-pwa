@@ -1,48 +1,69 @@
-/**
- * OCR в PWA: tesseract.js подгружается динамически с CDN (в оффлайне OCR
- * недоступен — показываем понятное сообщение, приложение не падает).
- */
-let loader: Promise<any> | null = null;
-
-function loadTesseract(): Promise<any> {
-  if (!loader) {
-    loader = new Promise((resolve, reject) => {
-      const w = window as any;
-      if (w.Tesseract) return resolve(w.Tesseract);
-      const s = document.createElement("script");
-      s.src = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
-      s.onload = () => resolve(w.Tesseract);
-      s.onerror = () => reject(new Error("tesseract.js не загрузился (оффлайн?)"));
-      document.head.appendChild(s);
-    });
+// OCR: tesseract.js подгружается с CDN только при первом скане — бандл не тяжелеет.
+// Языки rus+eng (данные языков кэшируются браузером после первой загрузки).
+declare global {
+  interface Window {
+    Tesseract?: any;
   }
-  return loader;
 }
 
-export async function ocrImage(source: HTMLImageElement | HTMLCanvasElement | string): Promise<string> {
-  const Tesseract = await loadTesseract();
-  const res = await Tesseract.recognize(source as any, "rus+eng");
-  return String(res?.data?.text ?? "").trim();
-}
+let workerPromise: Promise<any> | null = null;
 
-/** SVG-страницу демо рендерим в canvas, чтобы отдать в OCR и показать как картинку. */
-export function svgToCanvas(svg: string, width = 900): Promise<HTMLCanvasElement> {
+function loadScript(src: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const canvas = document.createElement("canvas");
-    const img = new Image();
-    img.onload = () => {
-      const scale = width / img.width;
-      canvas.width = width;
-      canvas.height = Math.round(img.height * scale);
-      const ctx = canvas.getContext("2d")!;
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      resolve(canvas);
-    };
-    img.onerror = () => reject(new Error("SVG не отрендерился"));
-    img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+    const s = document.createElement("script");
+    s.src = src;
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error("CDN недоступен — OCR офлайн не работает"));
+    document.head.appendChild(s);
   });
 }
 
-export const svgToCanvasSync = svgToCanvas;
+async function getWorker(): Promise<any> {
+  if (!workerPromise) {
+    workerPromise = (async () => {
+      if (!window.Tesseract) {
+        await loadScript("https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js");
+      }
+      return await window.Tesseract.createWorker("rus+eng");
+    })().catch((e) => {
+      workerPromise = null; // следующая попытка — заново
+      throw e;
+    });
+  }
+  return workerPromise;
+}
+
+/** Распознать текст с картинки (URL/dataURI/элемент/canvas). */
+export async function ocrImage(src: string | HTMLImageElement | HTMLCanvasElement): Promise<string> {
+  const w = await getWorker();
+  const { data } = await w.recognize(src as any);
+  return String(data?.text || "").trim();
+}
+
+/** Обрезать область картинки (в долях 0..1) в canvas — для скана выбранной зоны. */
+export function cropToCanvas(
+  img: HTMLImageElement,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): HTMLCanvasElement {
+  const c = document.createElement("canvas");
+  const scale = Math.min(3, Math.max(1, 1200 / Math.max(1, img.naturalWidth * w)));
+  c.width = Math.max(1, Math.round(img.naturalWidth * w * scale));
+  c.height = Math.max(1, Math.round(img.naturalHeight * h * scale));
+  const ctx = c.getContext("2d")!;
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(
+    img,
+    img.naturalWidth * x,
+    img.naturalHeight * y,
+    img.naturalWidth * w,
+    img.naturalHeight * h,
+    0,
+    0,
+    c.width,
+    c.height,
+  );
+  return c;
+}
