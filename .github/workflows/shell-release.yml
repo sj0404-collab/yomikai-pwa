@@ -1,0 +1,41 @@
+name: Shell Release
+
+on:
+  push:
+    tags: ['shell-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Restore signing keystore
+        run: echo "$SHELL_SIGNING_KEY" | base64 -d > app/release.p12
+        env:
+          SHELL_SIGNING_KEY: ${{ secrets.SHELL_SIGNING_KEY }}
+      - name: Build release APK
+        run: gradle :app:assembleRelease --no-daemon --stacktrace
+        env:
+          KEY_STORE_PASSWORD: ${{ secrets.SHELL_KEY_STORE_PASSWORD }}
+          ALIAS: ${{ secrets.SHELL_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.SHELL_KEY_PASSWORD }}
+          RELEASE_TAG: ${{ github.ref_name }}
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: yomikai web ${{ github.ref_name }}
+          files: app/build/outputs/apk/release/app-release.apk
+          body: |
+            APK-обёртка yomikai web: нативные Kotlin-вкладки + PWA-содержимое.
+            Тег: ${{ github.ref_name }}

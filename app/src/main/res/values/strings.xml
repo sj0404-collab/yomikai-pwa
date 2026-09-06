@@ -1,0 +1,10 @@
+<resources>
+    <string name="app_name">yomikai web</string>
+    <string name="tab_library">Библиотека</string>
+    <string name="tab_browse">Каталоги</string>
+    <string name="tab_history">История</string>
+    <string name="tab_reader">Читалка</string>
+    <string name="tab_web">Браузер</string>
+    <string name="tab_ai">AI-чат</string>
+    <string name="tab_more">Ещё</string>
+</resources>
