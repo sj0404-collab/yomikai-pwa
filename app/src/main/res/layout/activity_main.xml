@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical">
@@ -11,13 +10,20 @@
         android:layout_height="0dp"
         android:layout_weight="1" />
 
-    <com.google.android.material.bottomnavigation.BottomNavigationView
-        android:id="@+id/bottom_nav"
+    <!-- Полностью нативная Kotlin-панель вкладок: без лимита Material в 5 пунктов -->
+    <HorizontalScrollView
+        android:id="@+id/tab_bar_scroll"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="60dp"
         android:background="@color/panel"
-        app:itemIconTint="@color/accent"
-        app:itemTextColor="@color/accent"
-        app:labelVisibilityMode="labeled"
-        app:menu="@menu/tabs" />
+        android:scrollbars="none">
+
+        <LinearLayout
+            android:id="@+id/tab_bar"
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:orientation="horizontal"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp" />
+    </HorizontalScrollView>
 </LinearLayout>

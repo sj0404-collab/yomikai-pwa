@@ -1,9 +1,0 @@
-<menu xmlns:android="http://schemas.android.com/apk/res/android">
-    <item android:id="@+id/tab_library" android:icon="@drawable/ic_library" android:title="@string/tab_library" />
-    <item android:id="@+id/tab_browse" android:icon="@drawable/ic_browse" android:title="@string/tab_browse" />
-    <item android:id="@+id/tab_history" android:icon="@drawable/ic_history" android:title="@string/tab_history" />
-    <item android:id="@+id/tab_reader" android:icon="@drawable/ic_reader" android:title="@string/tab_reader" />
-    <item android:id="@+id/tab_web" android:icon="@drawable/ic_web" android:title="@string/tab_web" />
-    <item android:id="@+id/tab_ai" android:icon="@drawable/ic_ai" android:title="@string/tab_ai" />
-    <item android:id="@+id/tab_more" android:icon="@drawable/ic_more" android:title="@string/tab_more" />
-</menu>
