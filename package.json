@@ -6,7 +6,7 @@
   "description": "Yomikai PWA — веб-двойник читалки yomikai: вкладки, читалка с озвучкой и OCR, браузер, AI-чат, конструктор UI. React + TSX + Vite, оффлайн через service worker.",
   "scripts": {
     "dev": "vite",
-    "build": "tsc --noEmit && vite build",
+    "build": "node scripts/gen-manifests.mjs && tsc --noEmit && vite build",
     "preview": "vite preview"
   },
   "dependencies": {

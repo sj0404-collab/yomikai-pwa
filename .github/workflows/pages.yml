@@ -28,6 +28,8 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Build (tsc + vite)
         run: npm run build
+      - name: Per-tab service workers (каждая PWA — своя область)
+        run: for t in library browse history reader web ai more; do cp dist/sw.js dist/$t/sw.js; done
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

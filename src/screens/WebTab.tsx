@@ -36,7 +36,11 @@ function normalize(raw: string): string {
 
 export default function WebTab() {
   const [marks, setMarks] = useState(loadMarks);
-  const [url, setUrl] = useState(() => localStorage.getItem(LAST_KEY) || DEFAULT_MARKS[0].url);
+  const [url, setUrl] = useState(() => {
+    // ?url= — переход из соседней PWA или из Kotlin-обёртки
+    const q = new URLSearchParams(location.search).get("url");
+    return q || localStorage.getItem(LAST_KEY) || DEFAULT_MARKS[0].url;
+  });
   const [input, setInput] = useState(url);
   const [showMarks, setShowMarks] = useState(false);
   const frameRef = useRef<HTMLIFrameElement>(null);

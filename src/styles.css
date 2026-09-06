@@ -129,3 +129,7 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
 .list-item .grow .t { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .badge { font-size: 10.5px; color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 1px 7px; }
 input[type="range"] { width: 100%; accent-color: var(--accent); }
+
+/* ссылки-вкладки standalone-режима (в Kotlin-обёртке скрыты) */
+a.tab { text-decoration: none; color: var(--muted); }
+a.tab.active { color: var(--accent); }

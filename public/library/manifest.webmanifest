@@ -1,0 +1,20 @@
+{
+  "name": "Yomikai · Библиотека",
+  "short_name": "Библиотека",
+  "description": "Сетка тайтлов, прогресс чтения, свои тайтлы",
+  "lang": "ru",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#121417",
+  "theme_color": "#121417",
+  "icons": [
+    {
+      "src": "../icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
