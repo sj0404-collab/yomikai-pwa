@@ -23,6 +23,7 @@ class MainActivity : AppCompatActivity() {
     companion object {
         const val BASE = "https://sj0404-collab.github.io/yomikai-pwa/"
         val TABS = listOf("library", "browse", "history", "reader", "web", "ai", "more")
+        private const val REQ_FILE = 22
     }
 
     private lateinit var container: FrameLayout
@@ -86,8 +87,10 @@ class MainActivity : AppCompatActivity() {
     fun selectTab(tab: String) {
         if (!TABS.contains(tab)) return
         current = tab
+        if (tab == "web") ensureSiteWv()
         webFor(tab)
         views.forEach { (k, v) -> v.visibility = if (k == tab) View.VISIBLE else View.GONE }
+        siteWv?.visibility = if (tab == "web") View.VISIBLE else View.GONE
         val accent = getColor(R.color.accent)
         val muted = getColor(R.color.muted)
         tabViews.forEach { (k, v) ->
@@ -117,12 +120,180 @@ class MainActivity : AppCompatActivity() {
             useWideViewPort = true
         }
         wv.webViewClient = WebViewClient()
-        // Мосты для PWA: переходы между вкладками и нативная озвучка.
+        // Мосты для PWA: переходы между вкладками, нативная озвучка, источники.
         wv.addJavascriptInterface(Bridge(), "AndroidShell")
         wv.addJavascriptInterface(TtsBridge(), "YomikaiTts")
-        container.addView(wv)
-        wv.loadUrl(BASE + tab + "/?shell=1")
+        wv.addJavascriptInterface(app.yomikai.web.src.SourcesBridge(this), "YomikaiSources")
+        if (tab == "web") {
+            // Режим тулбара: узкая PWA-полоса поверх нативного сайт-WebView.
+            wv.addJavascriptInterface(WebSiteBridge(), "AndroidSite")
+            (wv.layoutParams as FrameLayout.LayoutParams).apply {
+                height = (56 * resources.displayMetrics.density).toInt()
+                gravity = android.view.Gravity.TOP
+            }
+            wv.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+            wv.elevation = 12f
+            container.addView(wv)
+            wv.loadUrl(BASE + "web/?bar=1&shell=1")
+        } else {
+            container.addView(wv)
+            wv.loadUrl(BASE + tab + "/?shell=1")
+        }
         wv
+    }
+
+    // ---------- Вкладка «Веб» — как в оригинальном yomikai: нативный WebView сайта ----------
+    private var siteWv: WebView? = null
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun ensureSiteWv() {
+        if (siteWv != null) return
+        val wv = WebView(this)
+        wv.layoutParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT,
+        )
+        wv.visibility = View.GONE
+        wv.settings.apply {
+            javaScriptEnabled = true
+            domStorageEnabled = true
+            databaseEnabled = true
+            mediaPlaybackRequiresUserGesture = false
+            setSupportZoom(true)
+            builtInZoomControls = true
+            displayZoomControls = false
+            loadWithOverviewMode = true
+            useWideViewPort = true
+            javaScriptCanOpenWindowsAutomatically = true
+            setSupportMultipleWindows(false)
+        }
+        wv.webViewClient = object : WebViewClient() {
+            override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                pushState()
+            }
+
+            override fun onPageFinished(view: WebView?, url: String?) {
+                pushState()
+            }
+
+            override fun onReceivedTitle(view: WebView?, title: String?) {
+                pushState()
+            }
+        }
+        wv.webChromeClient = object : android.webkit.WebChromeClient() {
+            override fun onProgressChanged(view: WebView?, newProgress: Int) { pushState() }
+
+            override fun onShowFileChooser(
+                webView: WebView?,
+                callback: android.webkit.ValueCallback<Array<android.net.Uri>>?,
+                params: FileChooserParams?,
+            ): Boolean {
+                runCatching {
+                    val intent = params?.createIntent() ?: return false
+                    fileCb = callback
+                    startActivityForResult(intent, REQ_FILE)
+                }
+                return true
+            }
+        }
+        // Системные загрузки (как в оригинале): DownloadManager + уведомление.
+        wv.setDownloadListener { url, ua, disposition, mime, _ ->
+            runCatching {
+                val dm = getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
+                val req = android.app.DownloadManager.Request(android.net.Uri.parse(url)).apply {
+                    setMimeType(mime)
+                    addRequestHeader("User-Agent", ua ?: "")
+                    setNotificationVisibility(
+                        android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED,
+                    )
+                    setDestinationInExternalPublicDir(
+                        android.os.Environment.DIRECTORY_DOWNLOADS,
+                        android.webkit.URLUtil.guessFileName(url, disposition, mime),
+                    )
+                }
+                dm.enqueue(req)
+            }
+        }
+        container.addView(wv)
+        siteWv = wv
+        // восстановить последний сайт (как в оригинале)
+        val last = getSharedPreferences("shell", MODE_PRIVATE).getString("web_last", "") ?: ""
+        wv.loadUrl(if (last.isNotBlank()) last else "https://duckduckgo.com")
+    }
+
+    private var fileCb: android.webkit.ValueCallback<Array<android.net.Uri>>? = null
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQ_FILE) {
+            val uris = data?.data?.let { arrayOf(it) }
+            fileCb?.onReceiveValue(uris)
+            fileCb = null
+        }
+    }
+
+    private fun pushState() {
+        val wv = siteWv ?: return
+        val ui = views["web"] ?: return
+        val st = org.json.JSONObject().apply {
+            put("url", wv.url ?: "")
+            put("title", wv.title ?: "")
+            put("canBack", wv.canGoBack())
+            put("canForward", wv.canGoForward())
+            put("progress", wv.progress)
+        }
+        getSharedPreferences("shell", MODE_PRIVATE).edit().putString("web_last", wv.url ?: "").apply()
+        runOnUiThread {
+            runCatching {
+                ui.evaluateJavascript("window.onSiteState && window.onSiteState(${st})", null)
+            }
+        }
+    }
+
+    /** Мост тулбара вкладки «Веб»: навигация нативного сайт-WebView. */
+    inner class WebSiteBridge {
+        @android.webkit.JavascriptInterface
+        fun nav(url: String) {
+            var u = url.trim()
+            if (u.isEmpty()) return
+            if (!u.startsWith("http://") && !u.startsWith("https://")) u = "https://$u"
+            runOnUiThread { runCatching { siteWv?.loadUrl(u) } }
+        }
+
+        @android.webkit.JavascriptInterface
+        fun back() { runOnUiThread { runCatching { if (siteWv?.canGoBack() == true) siteWv?.goBack() } } }
+
+        @android.webkit.JavascriptInterface
+        fun forward() { runOnUiThread { runCatching { if (siteWv?.canGoForward() == true) siteWv?.goForward() } } }
+
+        @android.webkit.JavascriptInterface
+        fun reload() { runOnUiThread { runCatching { siteWv?.reload() } } }
+
+        @android.webkit.JavascriptInterface
+        fun stop() { runOnUiThread { runCatching { siteWv?.stopLoading() } } }
+
+        @android.webkit.JavascriptInterface
+        fun state(): String {
+            val wv = siteWv ?: return "{}"
+            return org.json.JSONObject().apply {
+                put("url", wv.url ?: ""); put("title", wv.title ?: "")
+                put("canBack", wv.canGoBack()); put("canForward", wv.canGoForward())
+                put("progress", wv.progress)
+            }.toString()
+        }
+
+        @android.webkit.JavascriptInterface
+        fun setBarHeight(dp: Int) {
+            runOnUiThread {
+                runCatching {
+                    val ui = views["web"] ?: return@runCatching
+                    (ui.layoutParams as FrameLayout.LayoutParams).height =
+                        (dp * resources.displayMetrics.density).toInt()
+                    ui.requestLayout()
+                }
+            }
+        }
     }
 
     /** Если прошлый запуск упал — показываем причину (crash.log), чтобы вылет
@@ -201,6 +372,10 @@ class MainActivity : AppCompatActivity() {
 
     @Deprecated("WebView back")
     override fun onBackPressed() {
+        if (current == "web" && siteWv != null) {
+            if (siteWv!!.canGoBack()) { siteWv!!.goBack() } else { @Suppress("DEPRECATION") super.onBackPressed() }
+            return
+        }
         val wv = runCatching { views[current] }.getOrNull()
         if (wv != null && wv.canGoBack()) {
             wv.goBack()

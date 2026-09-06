@@ -25,5 +25,10 @@ class ShellApp : Application() {
             }
             default?.uncaughtException(t, e)
         }
+        // источник-движок: сеть + локальный прокси картинок
+        runCatching {
+            app.yomikai.web.src.NetworkHolder.init(this)
+            app.yomikai.web.src.ImageProxy.start { app.yomikai.web.src.NetworkHolder.get().client }
+        }
     }
 }
