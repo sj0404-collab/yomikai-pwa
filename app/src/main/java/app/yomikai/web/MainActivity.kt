@@ -70,6 +70,7 @@ class MainActivity : AppCompatActivity() {
         wv.webViewClient = WebViewClient()
         // Мост для PWA: переход между вкладками из TSX-кода.
         wv.addJavascriptInterface(Bridge(), "AndroidShell")
+        wv.addJavascriptInterface(TtsBridge(), "YomikaiTts")
         container.addView(wv)
         wv.loadUrl(BASE + tab + "/?shell=1")
         wv
@@ -89,6 +90,35 @@ class MainActivity : AppCompatActivity() {
             else -> R.id.tab_more
         }
         if (nav.selectedItemId != id) nav.selectedItemId = id
+    }
+
+    /** JS-мост озвучки: Web Speech API в WebView отсутствует — нативный TextToSpeech. */
+    inner class TtsBridge {
+        private var tts: android.speech.tts.TextToSpeech? = null
+
+        init {
+            tts = android.speech.tts.TextToSpeech(this@MainActivity) { st ->
+                if (st == android.speech.tts.TextToSpeech.SUCCESS) {
+                    tts?.language = java.util.Locale("ru", "RU")
+                }
+            }
+        }
+
+        @android.webkit.JavascriptInterface
+        fun speak(text: String, gender: String, age: String, rate: Float, pitch: Float) {
+            val t = tts ?: return
+            val g = when (gender) { "male" -> 0.8f; "female" -> 1.16f; else -> 1.0f }
+            val ap = when (age) { "infant" -> 1.85f; "child" -> 1.4f; "teen" -> 1.15f; "elderly" -> 0.82f; else -> 1.0f }
+            val ar = when (age) { "infant" -> 0.9f; "child" -> 1.0f; "teen" -> 1.02f; "elderly" -> 0.92f; else -> 1.0f }
+            t.setPitch((pitch * g * ap).coerceIn(0.3f, 2f))
+            t.setSpeechRate((rate * ar).coerceIn(0.5f, 2f))
+            t.speak(text, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "yk_shell")
+        }
+
+        @android.webkit.JavascriptInterface
+        fun stop() {
+            tts?.stop()
+        }
     }
 
     /** JS-мост: PWA зовёт AndroidShell.openTab('reader', '?open=id'). */
