@@ -13,6 +13,8 @@ export type SourcesBridge = {
   proxy(image: string, referer: string): string;
   installExtension(apkUrl: string): string;
   installExtensionDirect(apkUrl: string): string;
+  uninstallExtension(pkg: string): string;
+  reloadSources(): string;
 };
 export type SiteState = { url: string; title: string; canBack: boolean; canForward: boolean; progress: number };
 export type SiteBridge = {
@@ -33,6 +35,7 @@ export type MangaInfo = { url: string; title: string; author: string; artist: st
 export type ChInfo = { url: string; name: string; date: number; num: number; scan: string };
 export type PageInfo = { image: string; referer: string; n: number };
 export type RepoExt = { name: string; pkg: string; apk: string; lang: string; version: string; code: number; nsfw: number; sources?: { name: string; lang: string }[] };
+export type InstalledExt = { pkg: string; name: string; version: string; code: number; nsfw: boolean };
 
 export function jp<T>(s: string): T {
   return JSON.parse(s) as T;
