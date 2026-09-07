@@ -104,6 +104,23 @@ class SourcesBridge(private val ctx: Context) {
         }.getOrDefault("""{"error":"install"}""")
     }
 
+    /** Удаление расширения — системный диалог, как uninstall в оригинале. */
+    @JavascriptInterface
+    fun uninstallExtension(pkg: String): String = runCatching {
+        val intent = Intent(Intent.ACTION_DELETE, Uri.parse("package:$pkg")).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        ctx.startActivity(intent)
+        """{"ok":true}"""
+    }.getOrDefault("""{"error":"uninstall"}""")
+
+    /** Сброс кэша движка (после установки/удаления расширений). */
+    @JavascriptInterface
+    fun reloadSources(): String = runCatching {
+        SourcesEngine.reload(ctx)
+        """{"ok":true,"count":${SourcesEngine.count()}}"""
+    }.getOrDefault("""{"error":"reload"}""")
+
     private fun safeRun(block: () -> String): String = runCatching(block)
         .getOrElse { """{"error":"${it.javaClass.simpleName}: ${it.message?.take(200) ?: ""}"}""" }
 }

@@ -41,6 +41,7 @@ object SourcesEngine {
         val pkg: String,
         val name: String,
         val versionName: String,
+        val versionCode: Long,
         val nsfw: Boolean,
     )
 
@@ -63,10 +64,13 @@ object SourcesEngine {
             val meta = pkg.applicationInfo?.metaData
             val nsfw = (meta?.getInt(METADATA_CONTENT_WARNING, 0) ?: 0) > 0 ||
                 (meta?.getInt(METADATA_NSFW, 0) ?: 0) == 1
+            @Suppress("DEPRECATION")
+            val vcode = if (android.os.Build.VERSION.SDK_INT >= 28) pkg.longVersionCode else pkg.versionCode.toLong()
             ExtInfo(
                 pkg = pkg.packageName,
                 name = pkg.applicationInfo?.loadLabel(pm)?.toString()?.removePrefix("Tachiyomi: ") ?: pkg.packageName,
                 versionName = pkg.versionName ?: "",
+                versionCode = vcode,
                 nsfw = nsfw,
             )
         }
@@ -101,6 +105,15 @@ object SourcesEngine {
         }
         return out
     }
+
+    fun reload(context: Context) {
+        scanned = false
+        sourcesCache.clear()
+        extBySource.clear()
+        ensure(context)
+    }
+
+    fun count(): Int = sourcesCache.size
 
     fun ensure(context: Context) {
         if (scanned) return
@@ -144,7 +157,7 @@ object SourcesEngine {
             arr.put(
                 JSONObject().apply {
                     put("pkg", e.pkg); put("name", e.name)
-                    put("version", e.versionName); put("nsfw", e.nsfw)
+                    put("version", e.versionName); put("code", e.versionCode); put("nsfw", e.nsfw)
                 },
             )
         }
